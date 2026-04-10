@@ -59,6 +59,8 @@ class RuntimeConfig:
     max_horizons: int
     num_bags: int
     bag_frac: float
+    location_bag_frac: float
+    location_bag_min: int
     seed: int
     stage1_rounds: int
     stage2_rounds: int
@@ -544,16 +546,36 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
     )
 
     bag_preds = []
+    bag_locations: List[set[str]] = []
     if len(train_df) >= cfg.min_train_rows and not test_df_clean.empty:
         seasons = sorted(train_df["season"].dropna().unique())
         if seasons:
             bag_size = max(1, int(round(len(seasons) * cfg.bag_frac)))
+            train_locations = sorted(train_df["location"].astype(str).unique().tolist())
+            if not train_locations:
+                raise RuntimeError(f"[{cfg.target}] no train locations available for bagging")
+            if cfg.location_bag_frac <= 0:
+                raise ValueError("location_bag_frac must be > 0")
+            if cfg.location_bag_min < 1:
+                raise ValueError("location_bag_min must be >= 1")
+            loc_bag_size = max(int(np.ceil(len(train_locations) * cfg.location_bag_frac)), int(cfg.location_bag_min))
+            loc_bag_size = min(max(1, loc_bag_size), len(train_locations))
             rng_seed = int(cfg.seed + int(anchor.value // 10**9))
             rng = np.random.default_rng(rng_seed)
+            print(
+                f"[{cfg.target}] season_bag_size={bag_size}/{len(seasons)} "
+                f"location_bag_size={loc_bag_size}/{len(train_locations)}"
+            )
 
             for b in range(cfg.num_bags):
                 sampled = rng.choice(seasons, size=bag_size, replace=False)
-                bag_mask = train_df["season"].isin(sampled).to_numpy()
+                if loc_bag_size >= len(train_locations):
+                    sampled_locs = train_locations
+                else:
+                    sampled_locs = sorted(rng.choice(train_locations, size=loc_bag_size, replace=False).tolist())
+                season_mask = train_df["season"].isin(sampled).to_numpy()
+                loc_mask = train_df["location"].isin(sampled_locs).to_numpy()
+                bag_mask = season_mask & loc_mask
                 bag_train = train_df.loc[bag_mask]
                 bag_target = train_target[bag_mask]
                 if len(bag_train) < cfg.min_train_rows:
@@ -568,14 +590,15 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
                         seed=rng_seed + b,
                     )
                     q = predict_quantiles(
-                    stage1,
-                    stage2,
-                    test_df_clean.loc[:, feat_cols],
-                    QUANTILES,
-                    target_mode=cfg.target_mode,
-                    current_obs=test_df_clean["y_base"].to_numpy(dtype=float),
-                )
+                        stage1,
+                        stage2,
+                        test_df_clean.loc[:, feat_cols],
+                        QUANTILES,
+                        target_mode=cfg.target_mode,
+                        current_obs=test_df_clean["y_base"].to_numpy(dtype=float),
+                    )
                     bag_preds.append(q)
+                    bag_locations.append(set(sampled_locs))
                 except Exception:
                     continue
 
@@ -590,13 +613,43 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
     rows = []
     modeled_pairs = set()
 
-    bag_tensor = np.stack(bag_preds, axis=0)
-    agg_q = np.median(bag_tensor, axis=0)
+    bag_tensor = np.stack(bag_preds, axis=0)  # [n_bags, n_test_rows, n_quantiles]
+    test_locs = test_df_clean["location"].astype(str).to_numpy()
+    train_locs_valid = set(train_df["location"].astype(str).unique().tolist())
+    loc_to_bag_idx: Dict[str, np.ndarray] = {}
+    cold_start_locs: List[str] = []
+    for loc in sorted(set(test_locs.tolist())):
+        if loc not in train_locs_valid:
+            # Location has no valid delta-training rows; use all successful bags.
+            idx = list(range(len(bag_preds)))
+            cold_start_locs.append(loc)
+        else:
+            idx = [i for i, loc_set in enumerate(bag_locations) if loc in loc_set]
+            if not idx:
+                raise RuntimeError(
+                    f"[{cfg.target}] no successful bags included location={loc}; "
+                    "increase num_bags or location_bag_frac/location_bag_min."
+                )
+        loc_to_bag_idx[loc] = np.asarray(idx, dtype=int)
+
+    if cold_start_locs:
+        print(
+            f"[{cfg.target}] cold-start locations (no valid train rows, using all bags): "
+            f"{sorted(cold_start_locs)}"
+        )
+
+    loc_cover = np.array([len(loc_to_bag_idx[l]) for l in sorted(loc_to_bag_idx)], dtype=int)
+    print(
+        f"[{cfg.target}] per-location bag coverage: min={int(loc_cover.min())} "
+        f"median={float(np.median(loc_cover)):.1f} max={int(loc_cover.max())}"
+    )
 
     for i, row in test_df_clean.reset_index(drop=True).iterrows():
         loc = row["location"]
         h = int(row["horizon"])
         te = pd.to_datetime(row["target_end_date"])
+        bag_idx = loc_to_bag_idx[str(loc)]
+        agg_q = np.median(bag_tensor[bag_idx, i, :], axis=0)
         modeled_pairs.add((loc, h))
         for q_idx, q_level in enumerate(QUANTILES):
             rows.append(
@@ -608,7 +661,7 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
                     "location": loc,
                     "output_type": "quantile",
                     "output_type_id": float(q_level),
-                    "value": float(max(0.0, agg_q[i, q_idx])),
+                    "value": float(max(0.0, agg_q[q_idx])),
                 }
             )
 
@@ -642,6 +695,8 @@ def build_config(args: argparse.Namespace) -> RuntimeConfig:
         max_horizons=args.max_horizons,
         num_bags=args.num_bags,
         bag_frac=args.bag_frac,
+        location_bag_frac=args.location_bag_frac,
+        location_bag_min=args.location_bag_min,
         seed=args.seed,
         stage1_rounds=args.stage1_rounds,
         stage2_rounds=args.stage2_rounds,
@@ -670,6 +725,18 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-horizons", type=int, default=4)
     p.add_argument("--num-bags", type=int, default=80)
     p.add_argument("--bag-frac", type=float, default=0.7)
+    p.add_argument(
+        "--location-bag-frac",
+        type=float,
+        default=1.0,
+        help="Fraction of locations sampled per bag (1.0 disables location subset bagging)",
+    )
+    p.add_argument(
+        "--location-bag-min",
+        type=int,
+        default=1,
+        help="Minimum number of locations retained in each bag",
+    )
     p.add_argument("--seed", type=int, default=2026)
     p.add_argument("--stage1-rounds", type=int, default=200)
     p.add_argument("--stage2-rounds", type=int, default=150)

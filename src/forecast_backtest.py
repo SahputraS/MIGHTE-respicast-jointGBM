@@ -10,11 +10,6 @@ import pandas as pd
 from build_long_timeseries import resolve_long_timeseries
 from model_joint_twostage_eu import RuntimeConfig, run_prospective
 
-DEFAULT_WIDE17_LOCATIONS = [
-    "AT", "BE", "CZ", "EE", "FI", "FR", "GR", "HU", "IE",
-    "IS", "LT", "LU", "MT", "NL", "NO", "PL", "RO",
-]
-
 
 def target_slug(target: str) -> str:
     if target == "ILI incidence":
@@ -90,8 +85,8 @@ def main() -> None:
     parser.add_argument("--model-id", default="MIGHTE-jointGBM")
     parser.add_argument(
         "--locations",
-        default=",".join(DEFAULT_WIDE17_LOCATIONS),
-        help="Comma-separated ISO2 locations to forecast (default: 17-location wide-file scope)",
+        default=None,
+        help="Optional comma-separated ISO2 locations to forecast (default: all hub locations)",
     )
     parser.add_argument(
         "--start-origin-date",
@@ -120,6 +115,18 @@ def main() -> None:
     parser.add_argument("--max-horizons", type=int, default=4)
     parser.add_argument("--num-bags", type=int, default=80)
     parser.add_argument("--bag-frac", type=float, default=0.7)
+    parser.add_argument(
+        "--location-bag-frac",
+        type=float,
+        default=1.0,
+        help="Fraction of locations sampled per bag (1.0 disables location subset bagging)",
+    )
+    parser.add_argument(
+        "--location-bag-min",
+        type=int,
+        default=1,
+        help="Minimum number of locations retained in each bag",
+    )
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--stage1-rounds", type=int, default=200)
     parser.add_argument("--stage2-rounds", type=int, default=150)
@@ -207,6 +214,8 @@ def main() -> None:
                 max_horizons=args.max_horizons,
                 num_bags=args.num_bags,
                 bag_frac=args.bag_frac,
+                location_bag_frac=args.location_bag_frac,
+                location_bag_min=args.location_bag_min,
                 seed=args.seed,
                 stage1_rounds=args.stage1_rounds,
                 stage2_rounds=args.stage2_rounds,
