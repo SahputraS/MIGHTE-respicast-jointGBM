@@ -76,6 +76,7 @@ class RuntimeConfig:
     recent_weeks_required: int = 4
     anchor_date: Optional[pd.Timestamp] = None
     origin_date: Optional[pd.Timestamp] = None
+    google_trends_file: Optional[Path] = None
 
 
 def parse_lag_string(lag_str: str) -> List[int]:
