@@ -160,6 +160,8 @@ def main() -> None:
             sigma_mode=args.sigma_mode,
             locations_subset=location_scope,
             recent_weeks_required=args.recent_weeks_required,
+            google_trends_file=Path(args.google_trends_file) if args.google_trends_file else None,  # ← ADD THIS
+
         )
 
         pred = run_prospective(cfg)
