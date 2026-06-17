@@ -97,6 +97,14 @@ def main() -> None:
         help="Only forecast locations with at least one observed truth in last N weeks",
     )
 
+    # Google data
+    parser.add_argument(
+        "--google-trends-file",
+        default=None,
+        help="Path to preprocessed Google Trends CSV (optional)",
+    )
+
+
     args = parser.parse_args()
 
     hub_dir = Path(args.hub_dir).resolve()
