@@ -543,6 +543,26 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         gt_df = pd.read_csv(cfg.google_trends_file, parse_dates=["date"])
         print(f"[{cfg.target}] Loaded Google Trends: {gt_df.shape[0]} rows, "
               f"{len([c for c in gt_df.columns if c not in ['location','date']])} terms")
+
+        # ── Pre-filter: only keep clusters correlated with target ──
+        gt_cols = [c for c in gt_df.columns if c not in ["location", "date"]]
+        useful = []
+        for col in gt_cols:
+            merged = gt_df[["date", "location", col]].merge(
+                target_df[["date", "location", "y"]], on=["date", "location"])
+            corr = merged[col].corr(merged["y"])
+            if abs(corr) > 0.3:
+                useful.append(col)
+                print(f"[{cfg.target}]   GT {col}: corr = {corr:.3f} ✓ kept")
+            else:
+                print(f"[{cfg.target}]   GT {col}: corr = {corr:.3f} ✗ dropped")
+        
+        if useful:
+            gt_df = gt_df[["date", "location"] + useful]
+        else:
+            print(f"[{cfg.target}]   No GT clusters passed filter — skipping GT features")
+            gt_df = None
+        # ─────────────────────────────────────────────────────────────
         
     feat = build_features(
         target_df=target_df,
