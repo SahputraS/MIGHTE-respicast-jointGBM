@@ -298,7 +298,7 @@ def build_features(
         # Add lagged versions (critical: avoid leakage)
         # GT at lag 1 = GT value from last week, available at forecast time
         for col in gt_cols:
-            for lag in [1, 2, 3, 4]:
+            for lag in [1, 2, 3, 4, 5, 6, 7, 8]:
                 df[f"{col}_lag{lag}"] = (
                     df.groupby("location")[col]
                     .shift(lag)
