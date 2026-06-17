@@ -203,6 +203,7 @@ def build_features(
     other_target_donors: Dict[str, List[str]],
     donor_top_k: int,
     other_top_k: int,
+    gt_df: pd.DataFrame = None, 
 ) -> pd.DataFrame:
     df = target_df.copy().sort_values(["location", "date"]).reset_index(drop=True)
     g = df.groupby("location", group_keys=False)
@@ -278,6 +279,34 @@ def build_features(
     df = pd.concat([df, loc_dummies], axis=1)
 
     df["season"] = df["date"].map(infer_flu_season)
+
+    ### Google Trends features 
+    if gt_df is not None:
+        # gt_df expected format:
+        #   location | date | term_1 | term_2 | ...
+        # (your preprocessed output: denoised, detrended, clustered)
+        
+        gt_cols = [c for c in gt_df.columns if c not in ["location", "date"]]
+        
+        # Merge on location + date
+        df = df.merge(gt_df[["location", "date"] + gt_cols],
+                      on=["location", "date"],
+                      how="left")   # left join: keeps all target rows,
+                                    # NaN where GT is missing (LightGBM handles this)
+        
+        # Add lagged versions (critical: avoid leakage)
+        # GT at lag 1 = GT value from last week, available at forecast time
+        for col in gt_cols:
+            for lag in [1, 2, 3, 4]:
+                df[f"{col}_lag{lag}"] = (
+                    df.groupby("location")[col]
+                    .shift(lag)
+                )
+        
+        # Drop the unlagged columns — using raw (unlagged) GT would leak
+        # future information at prediction time
+        df = df.drop(columns=gt_cols)
+    ####
     return df
 
 
