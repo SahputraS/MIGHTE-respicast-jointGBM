@@ -756,6 +756,12 @@ def make_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--anchor-date", default=None, help="Optional fixed anchor date (YYYY-MM-DD)")
     p.add_argument("--origin-date", default=None, help="Optional fixed origin date (YYYY-MM-DD)")
+
+    ## New google data
+    p.add_argument(
+    "--google-trends-file",
+    default=None,
+    help="Path to preprocessed Google Trends CSV (optional)")
     return p
 
 
