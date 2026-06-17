@@ -535,7 +535,14 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         min_overlap=cfg.min_overlap,
         target_mode=cfg.target_mode,
     )
-
+    
+    # ── Load Google Trends if provided ──
+    gt_df = None
+    if cfg.google_trends_file is not None:
+        gt_df = pd.read_csv(cfg.google_trends_file, parse_dates=["date"])
+        print(f"[{cfg.target}] Loaded Google Trends: {gt_df.shape[0]} rows, "
+              f"{len([c for c in gt_df.columns if c not in ['location','date']])} terms")
+        
     feat = build_features(
         target_df=target_df,
         other_df=other_df,
@@ -545,7 +552,10 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         other_target_donors=donor_other,
         donor_top_k=cfg.donor_top_k,
         other_top_k=cfg.other_top_k,
+        gt_df=gt_df, ## google data
     )
+
+    
 
     pooled = build_pooled_examples(feat, cfg.max_horizons)
     feat_cols = feature_columns(pooled)
