@@ -145,6 +145,12 @@ def main() -> None:
         help="Only forecast locations with at least one observed truth in last N weeks as-of each origin",
     )
 
+    parser.add_argument(
+        "--google-trends-file",
+        default=None,
+        help="Path to preprocessed Google Trends CSV (optional)",
+    )
+
     args = parser.parse_args()
 
     hub_dir = Path(args.hub_dir).resolve()
@@ -231,6 +237,8 @@ def main() -> None:
                 recent_weeks_required=args.recent_weeks_required,
                 anchor_date=anchor_date,
                 origin_date=origin_date,
+                google_trends_file=Path(args.google_trends_file) if args.google_trends_file else None,
+
             )
             pred = run_prospective(cfg)
             if pred.empty:
