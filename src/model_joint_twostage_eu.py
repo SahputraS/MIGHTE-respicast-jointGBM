@@ -759,9 +759,10 @@ def make_parser() -> argparse.ArgumentParser:
 
     ## New google data
     p.add_argument(
-    "--google-trends-file",
-    default=None,
-    help="Path to preprocessed Google Trends CSV (optional)")
+        "--google-trends-file",
+        default=None,
+        help="Path to preprocessed Google Trends CSV (optional)"
+    )
     return p
 
 
