@@ -539,30 +539,29 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
     
     # ── Load Google Trends if provided ──
     gt_df = None
-    if cfg.google_trends_file is not None:
-        gt_df = pd.read_csv(cfg.google_trends_file, parse_dates=["date"])
+    ### Google Trends features 
+    if gt_df is not None:
         gt_cols = [c for c in gt_df.columns if c not in ["location", "date"]]
         
-        # Per-country relevance filtering
-        for loc in gt_df["location"].unique():
-            loc_mask = gt_df["location"] == loc
-            loc_gt = gt_df.loc[loc_mask]
-            loc_target = target_df.loc[target_df["location"] == loc]
-            merged = loc_gt[["date"] + gt_cols].merge(
-                loc_target[["date", "y"]], on="date")
-            for col in gt_cols:
-                corr = merged[col].corr(merged["y"])
-                if abs(corr) < 0.3:
-                    gt_df.loc[loc_mask, col] = np.nan
+        df = df.merge(gt_df[["location", "date"] + gt_cols],
+                      on=["location", "date"],
+                      how="left")
         
-        kept = gt_df[gt_cols].notna().any()
-        kept_cols = kept[kept].index.tolist()
-        dropped_cols = kept[~kept].index.tolist()
-        if dropped_cols:
-            gt_df = gt_df.drop(columns=dropped_cols)  # drop clusters that are NaN everywhere
+        # Build all lag columns at once (avoids fragmentation warning)
+        lag_parts = []
+        for col in gt_cols:
+            for lag in [1, 2, 3, 4]:
+                lag_parts.append(
+                    df.groupby("location")[col]
+                    .shift(lag)
+                    .rename(f"{col}_lag{lag}")
+                )
         
-        print(f"[{cfg.target}] GT: {len(kept_cols)} clusters kept, "
-              f"{len(dropped_cols)} dropped entirely")
+        df = pd.concat([df] + lag_parts, axis=1)
+        
+        # Drop the unlagged columns
+        df = df.drop(columns=gt_cols)
+        ####
         # ─────────────────────────────────────────────────────────────
         
     feat = build_features(
