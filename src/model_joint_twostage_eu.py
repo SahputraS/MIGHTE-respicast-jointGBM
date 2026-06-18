@@ -541,27 +541,28 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
     gt_df = None
     if cfg.google_trends_file is not None:
         gt_df = pd.read_csv(cfg.google_trends_file, parse_dates=["date"])
-        print(f"[{cfg.target}] Loaded Google Trends: {gt_df.shape[0]} rows, "
-              f"{len([c for c in gt_df.columns if c not in ['location','date']])} terms")
-
-        # ── Pre-filter: only keep clusters correlated with target ──
         gt_cols = [c for c in gt_df.columns if c not in ["location", "date"]]
-        useful = []
-        for col in gt_cols:
-            merged = gt_df[["date", "location", col]].merge(
-                target_df[["date", "location", "y"]], on=["date", "location"])
-            corr = merged[col].corr(merged["y"])
-            if abs(corr) > 0.3:
-                useful.append(col)
-                print(f"[{cfg.target}]   GT {col}: corr = {corr:.3f} ✓ kept")
-            else:
-                print(f"[{cfg.target}]   GT {col}: corr = {corr:.3f} ✗ dropped")
         
-        if useful:
-            gt_df = gt_df[["date", "location"] + useful]
-        else:
-            print(f"[{cfg.target}]   No GT clusters passed filter — skipping GT features")
-            gt_df = None
+        # Per-country relevance filtering
+        for loc in gt_df["location"].unique():
+            loc_mask = gt_df["location"] == loc
+            loc_gt = gt_df.loc[loc_mask]
+            loc_target = target_df.loc[target_df["location"] == loc]
+            merged = loc_gt[["date"] + gt_cols].merge(
+                loc_target[["date", "y"]], on="date")
+            for col in gt_cols:
+                corr = merged[col].corr(merged["y"])
+                if abs(corr) < 0.3:
+                    gt_df.loc[loc_mask, col] = np.nan
+        
+        kept = gt_df[gt_cols].notna().any()
+        kept_cols = kept[kept].index.tolist()
+        dropped_cols = kept[~kept].index.tolist()
+        if dropped_cols:
+            gt_df = gt_df.drop(columns=dropped_cols)  # drop clusters that are NaN everywhere
+        
+        print(f"[{cfg.target}] GT: {len(kept_cols)} clusters kept, "
+              f"{len(dropped_cols)} dropped entirely")
         # ─────────────────────────────────────────────────────────────
         
     feat = build_features(
