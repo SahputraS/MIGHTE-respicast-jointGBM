@@ -283,29 +283,26 @@ def build_features(
 
     ### Google Trends features 
     if gt_df is not None:
-        # gt_df expected format:
-        #   location | date | term_1 | term_2 | ...
-        # (your preprocessed output: denoised, detrended, clustered)
-        
         gt_cols = [c for c in gt_df.columns if c not in ["location", "date"]]
         
         # Merge on location + date
         df = df.merge(gt_df[["location", "date"] + gt_cols],
                       on=["location", "date"],
-                      how="left")   # left join: keeps all target rows,
-                                    # NaN where GT is missing (LightGBM handles this)
+                      how="left")
         
-        # Add lagged versions (critical: avoid leakage)
-        # GT at lag 1 = GT value from last week, available at forecast time
+        # Build all lag columns at once (avoids fragmentation warning)
+        lag_parts = []
         for col in gt_cols:
             for lag in [1, 2, 3, 4, 5, 6, 7, 8]:
-                df[f"{col}_lag{lag}"] = (
+                lag_parts.append(
                     df.groupby("location")[col]
                     .shift(lag)
+                    .rename(f"{col}_lag{lag}")
                 )
         
-        # Drop the unlagged columns — using raw (unlagged) GT would leak
-        # future information at prediction time
+        df = pd.concat([df] + lag_parts, axis=1)
+        
+        # Drop the unlagged columns (using raw GT would leak future info)
         df = df.drop(columns=gt_cols)
     ####
     return df
