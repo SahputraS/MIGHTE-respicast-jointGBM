@@ -244,6 +244,12 @@ def main() -> None:
                 anchor_date=anchor_date,
                 origin_date=origin_date,
                 google_trends_file=Path(args.google_trends_file) if args.google_trends_file else None,
+                num_leaves=args.num_leaves,                    # I ADD
+                learning_rate=args.learning_rate,              # I ADD
+                min_child_samples=args.min_child_samples,      # I ADD
+                feature_fraction=args.feature_fraction,        # I ADD
+                lambda_l2=args.lambda_l2,                      # I ADD
+            )
 
             )
             pred = run_prospective(cfg)
