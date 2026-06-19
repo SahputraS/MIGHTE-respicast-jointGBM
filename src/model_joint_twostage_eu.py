@@ -344,6 +344,11 @@ def fit_two_stage_one_bag(
     stage2_rounds: int,
     sigma_mode: str,
     seed: int,
+    num_leaves: int = 31,              # I ADD
+    learning_rate: float = 0.05,       # I ADD
+    min_child_samples: int = 20,       # I ADD
+    feature_fraction: float = 0.9,     # I ADD
+    lambda_l2: float = 0.1,            # I ADD
 ) -> Tuple[lgb.Booster, LightGBMLSS]:
     x = X_train.astype(float)
     y = np.asarray(y_train, dtype=float)
@@ -351,10 +356,10 @@ def fit_two_stage_one_bag(
     p1 = {
         "objective": "regression",
         "metric": "l2",
-        "learning_rate": 0.05,
-        "num_leaves": 31,
-        "min_child_samples": 20,
-        "feature_fraction": 0.9,
+        "learning_rate": learning_rate,        #  was 0.05
+        "num_leaves": num_leaves,              #  was 31
+        "min_child_samples": min_child_samples,#  was 20
+        "feature_fraction": feature_fraction,  #  was 0.9
         "bagging_fraction": 0.9,
         "bagging_freq": 1,
         "verbosity": -1,
@@ -367,14 +372,14 @@ def fit_two_stage_one_bag(
     init_score = np.column_stack([mu_train, np.zeros_like(mu_train)]).ravel(order="F")
 
     p2 = {
-        "learning_rate": 0.05,
-        "num_leaves": 31,
+        "learning_rate": learning_rate,        #  was 0.05
+        "num_leaves": num_leaves,              #  was 31
         "max_depth": 6,
-        "min_child_samples": 20,
-        "feature_fraction": 0.9,
+        "min_child_samples": min_child_samples,#  was 20
+        "feature_fraction": feature_fraction,  #  was 0.9
         "bagging_fraction": 0.9,
         "bagging_freq": 1,
-        "lambda_l2": 0.1,
+        "lambda_l2": lambda_l2,                #  was 0.1
         "feature_pre_filter": False,
         "force_col_wise": True,
         "verbosity": -1,
@@ -534,7 +539,7 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         target_mode=cfg.target_mode,
     )
     
-    # ── Load Google Trends if provided ──
+    # Use Google Trends if provided 
     gt_df = None
     if cfg.google_trends_file is not None:
         gt_df = pd.read_csv(cfg.google_trends_file, parse_dates=["date"])
@@ -550,7 +555,7 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
                 loc_target[["date", "y"]], on="date")
             for col in gt_cols:
                 corr = merged[col].corr(merged["y"])
-                if abs(corr) < 0.3:
+                if abs(corr) < 0.3: #correlation less than 0.3 get turns to NAN and ignored
                     gt_df.loc[loc_mask, col] = np.nan
 
         # Drop clusters that are NaN in every country
