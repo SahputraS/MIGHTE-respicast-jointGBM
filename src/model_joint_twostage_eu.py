@@ -656,7 +656,13 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
                         stage2_rounds=cfg.stage2_rounds,
                         sigma_mode=cfg.sigma_mode,
                         seed=rng_seed + b,
+                        num_leaves=cfg.num_leaves,              # I ADD
+                        learning_rate=cfg.learning_rate,        # I ADD
+                        min_child_samples=cfg.min_child_samples,# I ADD
+                        feature_fraction=cfg.feature_fraction,  # I ADD
+                        lambda_l2=cfg.lambda_l2,                # I ADD
                     )
+                    
                     q = predict_quantiles(
                         stage1,
                         stage2,
