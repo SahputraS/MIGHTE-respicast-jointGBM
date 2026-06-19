@@ -151,6 +151,12 @@ def main() -> None:
         help="Path to preprocessed Google Trends CSV (optional)",
     )
 
+    parser.add_argument("--num-leaves", type=int, default=31) # I add for gridsearch
+    parser.add_argument("--learning-rate", type=float, default=0.05) # I add for gridsearch
+    parser.add_argument("--min-child-samples", type=int, default=20) # I add for gridsearch
+    parser.add_argument("--feature-fraction", type=float, default=0.9) # I add for gridsearch
+    parser.add_argument("--lambda-l2", type=float, default=0.1) # I add for gridsearch
+
     args = parser.parse_args()
 
     hub_dir = Path(args.hub_dir).resolve()
