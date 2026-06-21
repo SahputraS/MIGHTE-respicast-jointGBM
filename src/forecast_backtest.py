@@ -250,8 +250,6 @@ def main() -> None:
                 feature_fraction=args.feature_fraction,        # I ADD
                 lambda_l2=args.lambda_l2,                      # I ADD
             )
-
-            )
             pred = run_prospective(cfg)
             if pred.empty:
                 raise RuntimeError(
