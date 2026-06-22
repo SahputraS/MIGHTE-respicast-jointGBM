@@ -111,7 +111,9 @@ def _load_target_panel(
     locations: Sequence[str],
     cutoff_date: Optional[pd.Timestamp] = None,
     calendar_end_date: Optional[pd.Timestamp] = None,
+    exclude_covid: bool = False,          # I ADD THIS
 ) -> pd.DataFrame:
+    
     df = pd.read_csv(data_file)
     required = {"target", "location", "truth_date", "value"}
     missing = required.difference(df.columns)
