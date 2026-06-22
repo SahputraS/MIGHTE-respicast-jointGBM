@@ -145,6 +145,14 @@ def _load_target_panel(
     out = grid.merge(df, on=["location", "truth_date"], how="left")
     out = out.sort_values(["location", "truth_date"]).reset_index(drop=True)
     out = out.rename(columns={"truth_date": "date", "value": "y"})
+
+     # ──Exclude COVID-disrupted period, I add this (set targets to NaN, keep calendar continuous) ──
+    if exclude_covid:
+        covid_start = pd.to_datetime("2019-10-01")
+        covid_end   = pd.to_datetime("2022-09-30")
+        covid_mask = (out["date"] >= covid_start) & (out["date"] <= covid_end)
+        out.loc[covid_mask, "y"] = np.nan
+    # ────────────────────────────────────────────────────────────────────────────
     return out
 
 
