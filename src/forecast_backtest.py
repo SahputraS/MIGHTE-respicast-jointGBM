@@ -156,7 +156,7 @@ def main() -> None:
     parser.add_argument("--min-child-samples", type=int, default=20) # I add for gridsearch
     parser.add_argument("--feature-fraction", type=float, default=0.9) # I add for gridsearch
     parser.add_argument("--lambda-l2", type=float, default=0.1) # I add for gridsearch
-     parser.add_argument("--exclude-covid", action="store_true",
+    parser.add_argument("--exclude-covid", action="store_true",
                         help="Exclude the COVID-disrupted period (2019-10 to 2022-09) from training") # I add for exclude COVID period
 
     args = parser.parse_args()
