@@ -82,6 +82,7 @@ class RuntimeConfig:
     min_child_samples: int = 20          # I ADD
     feature_fraction: float = 0.9        # I ADD
     lambda_l2: float = 0.1               # I ADD
+    exclude_covid: bool = True           # I ADD
 
 
 def parse_lag_string(lag_str: str) -> List[int]:
