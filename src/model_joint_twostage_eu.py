@@ -522,6 +522,7 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         eligible_locations,
         cutoff_date=anchor,
         calendar_end_date=anchor,
+        exclude_covid=cfg.exclude_covid,  
     )
     other_df = _load_target_panel(
         cfg.data_file,
@@ -529,6 +530,7 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         eligible_locations,
         cutoff_date=anchor,
         calendar_end_date=anchor,
+        exclude_covid=cfg.exclude_covid,  
     )
     if cfg.origin_date is not None:
         origin_date = pd.to_datetime(cfg.origin_date)
