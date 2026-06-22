@@ -149,13 +149,15 @@ def main() -> None:
         "--google-trends-file",
         default=None,
         help="Path to preprocessed Google Trends CSV (optional)",
-    )
+    ) # I add for Google Trend
 
     parser.add_argument("--num-leaves", type=int, default=31) # I add for gridsearch
     parser.add_argument("--learning-rate", type=float, default=0.05) # I add for gridsearch
     parser.add_argument("--min-child-samples", type=int, default=20) # I add for gridsearch
     parser.add_argument("--feature-fraction", type=float, default=0.9) # I add for gridsearch
     parser.add_argument("--lambda-l2", type=float, default=0.1) # I add for gridsearch
+     parser.add_argument("--exclude-covid", action="store_true",
+                        help="Exclude the COVID-disrupted period (2019-10 to 2022-09) from training") # I add for exclude COVID period
 
     args = parser.parse_args()
 
@@ -243,12 +245,13 @@ def main() -> None:
                 recent_weeks_required=args.recent_weeks_required,
                 anchor_date=anchor_date,
                 origin_date=origin_date,
-                google_trends_file=Path(args.google_trends_file) if args.google_trends_file else None,
+                google_trends_file=Path(args.google_trends_file) if args.google_trends_file else None, # I ADD
                 num_leaves=args.num_leaves,                    # I ADD
                 learning_rate=args.learning_rate,              # I ADD
                 min_child_samples=args.min_child_samples,      # I ADD
                 feature_fraction=args.feature_fraction,        # I ADD
                 lambda_l2=args.lambda_l2,                      # I ADD
+                exclude_covid=args.exclude_covid,                  # I ADD
             )
             pred = run_prospective(cfg)
             if pred.empty:
