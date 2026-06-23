@@ -109,9 +109,16 @@ def main() -> None:
     parser.add_argument("--min-child-samples", type=int, default=20)
     parser.add_argument("--feature-fraction", type=float, default=0.9)
     parser.add_argument("--lambda-l2", type=float, default=0.1)
+
+    parser.add_argument("--s2-num-leaves", type=int, default=None)         # I ADD
+    parser.add_argument("--s2-learning-rate", type=float, default=None)    # I ADD
+    parser.add_argument("--s2-min-child-samples", type=int, default=None)  # I ADD
+    parser.add_argument("--s2-feature-fraction", type=float, default=None) # I ADD
+    parser.add_argument("--s2-max-depth", type=int, default=6)             # I ADD
+    
     parser.add_argument("--exclude-covid", action="store_true",
                         help="Exclude COVID period (2019-10 to 2022-09) from training")
-    # ----------------------------------------- ---------
+    # ---------------------------------------------------
 
     args = parser.parse_args()
 
@@ -174,6 +181,11 @@ def main() -> None:
             min_child_samples=args.min_child_samples,      # I ADD
             feature_fraction=args.feature_fraction,        # I ADD
             lambda_l2=args.lambda_l2,                      # I ADD
+            s2_num_leaves=args.s2_num_leaves,              # I ADD
+            s2_learning_rate=args.s2_learning_rate,        # I ADD
+            s2_min_child_samples=args.s2_min_child_samples,# I ADD
+            s2_feature_fraction=args.s2_feature_fraction,  # I ADD
+            s2_max_depth=args.s2_max_depth,                # I ADD
             exclude_covid=args.exclude_covid,              # I ADD
         )
 
