@@ -749,6 +749,11 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
                         min_child_samples=cfg.min_child_samples,# I ADD
                         feature_fraction=cfg.feature_fraction,  # I ADD
                         lambda_l2=cfg.lambda_l2,                # I ADD
+                        s2_num_leaves=cfg.s2_num_leaves,               # I ADD
+                        s2_learning_rate=cfg.s2_learning_rate,         # I ADD
+                        s2_min_child_samples=cfg.s2_min_child_samples, # I ADD
+                        s2_feature_fraction=cfg.s2_feature_fraction,   # I ADD
+                        s2_max_depth=cfg.s2_max_depth,                 # I ADD
                     )
                     
                     q = predict_quantiles(
