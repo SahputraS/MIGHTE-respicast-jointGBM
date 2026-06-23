@@ -88,7 +88,6 @@ class RuntimeConfig:
     s2_feature_fraction: Optional[float] = None    # I ADD
     s2_max_depth: int = 6                          # I ADD
     exclude_covid: bool = True           # I ADD
-    exclude_covid: bool = True           # I ADD
 
 
 def parse_lag_string(lag_str: str) -> List[int]:
