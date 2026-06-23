@@ -82,6 +82,12 @@ class RuntimeConfig:
     min_child_samples: int = 20          # I ADD
     feature_fraction: float = 0.9        # I ADD
     lambda_l2: float = 0.1               # I ADD
+    s2_num_leaves: Optional[int] = None            # I ADD (stage-2 own if None then inherit stage 1)
+    s2_learning_rate: Optional[float] = None       # I ADD
+    s2_min_child_samples: Optional[int] = None     # I ADD
+    s2_feature_fraction: Optional[float] = None    # I ADD
+    s2_max_depth: int = 6                          # I ADD
+    exclude_covid: bool = True           # I ADD
     exclude_covid: bool = True           # I ADD
 
 
@@ -353,6 +359,62 @@ def distribution_for_mode(mode: str):
     raise ValueError(f"Unsupported sigma mode: {mode}")
 
 
+# def fit_two_stage_one_bag(
+#     X_train: pd.DataFrame,
+#     y_train: np.ndarray,
+#     stage1_rounds: int,
+#     stage2_rounds: int,
+#     sigma_mode: str,
+#     seed: int,
+#     num_leaves: int = 31,              # I ADD
+#     learning_rate: float = 0.05,       # I ADD
+#     min_child_samples: int = 20,       # I ADD
+#     feature_fraction: float = 0.9,     # I ADD
+#     lambda_l2: float = 0.1,            # I ADD
+# ) -> Tuple[lgb.Booster, LightGBMLSS]:
+#     x = X_train.astype(float)
+#     y = np.asarray(y_train, dtype=float)
+
+#     p1 = {
+#         "objective": "regression",
+#         "metric": "l2",
+#         "learning_rate": learning_rate,        #  was 0.05
+#         "num_leaves": num_leaves,              #  was 31
+#         "min_child_samples": min_child_samples,#  was 20
+#         "feature_fraction": feature_fraction,  #  was 0.9
+#         "bagging_fraction": 0.9,
+#         "bagging_freq": 1,
+#         "verbosity": -1,
+#         "random_state": int(seed),
+#     }
+#     d1 = lgb.Dataset(x, label=y, params={"verbose": -1})
+#     stage1 = lgb.train(p1, d1, num_boost_round=stage1_rounds, callbacks=[])
+
+#     mu_train = stage1.predict(x)
+#     init_score = np.column_stack([mu_train, np.zeros_like(mu_train)]).ravel(order="F")
+
+#     p2 = {
+#         "learning_rate": learning_rate,        #  was 0.05
+#         "num_leaves": num_leaves,              #  was 31
+#         "max_depth": 6,
+#         "min_child_samples": min_child_samples,#  was 20
+#         "feature_fraction": feature_fraction,  #  was 0.9
+#         "bagging_fraction": 0.9,
+#         "bagging_freq": 1,
+#         "lambda_l2": lambda_l2,                #  was 0.1
+#         "feature_pre_filter": False,
+#         "force_col_wise": True,
+#         "verbosity": -1,
+#         "random_state": int(seed),
+#     }
+#     d2 = lgb.Dataset(x, label=y, init_score=init_score, params={"verbose": -1}, free_raw_data=False)
+#     stage2 = LightGBMLSS(distribution_for_mode(sigma_mode))
+#     stage2.start_values = np.array([float(np.mean(mu_train)), 0.0], dtype=np.float32)
+#     stage2.train(p2, d2, num_boost_round=stage2_rounds)
+
+#     return stage1, stage2
+
+# The new fit two stage, each stage has theirown tuneable params
 def fit_two_stage_one_bag(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
@@ -360,22 +422,35 @@ def fit_two_stage_one_bag(
     stage2_rounds: int,
     sigma_mode: str,
     seed: int,
-    num_leaves: int = 31,              # I ADD
-    learning_rate: float = 0.05,       # I ADD
-    min_child_samples: int = 20,       # I ADD
-    feature_fraction: float = 0.9,     # I ADD
-    lambda_l2: float = 0.1,            # I ADD
+    # Stage 1 
+    num_leaves: int = 31,
+    learning_rate: float = 0.05,
+    min_child_samples: int = 20,
+    feature_fraction: float = 0.9,
+    # Stage 2
+    lambda_l2: float = 0.1,                          # already stage-2 only
+    s2_num_leaves: Optional[int] = None,
+    s2_learning_rate: Optional[float] = None,
+    s2_min_child_samples: Optional[int] = None,
+    s2_feature_fraction: Optional[float] = None,
+    s2_max_depth: int = 6,
 ) -> Tuple[lgb.Booster, LightGBMLSS]:
     x = X_train.astype(float)
     y = np.asarray(y_train, dtype=float)
 
+    # Resolve stage-2 tree params: explicit override, else inherit stage 1
+    s2_num_leaves        = num_leaves        if s2_num_leaves        is None else s2_num_leaves
+    s2_learning_rate     = learning_rate     if s2_learning_rate     is None else s2_learning_rate
+    s2_min_child_samples = min_child_samples if s2_min_child_samples is None else s2_min_child_samples
+    s2_feature_fraction  = feature_fraction  if s2_feature_fraction  is None else s2_feature_fraction
+
     p1 = {
         "objective": "regression",
         "metric": "l2",
-        "learning_rate": learning_rate,        #  was 0.05
-        "num_leaves": num_leaves,              #  was 31
-        "min_child_samples": min_child_samples,#  was 20
-        "feature_fraction": feature_fraction,  #  was 0.9
+        "learning_rate": learning_rate,
+        "num_leaves": num_leaves,
+        "min_child_samples": min_child_samples,
+        "feature_fraction": feature_fraction,
         "bagging_fraction": 0.9,
         "bagging_freq": 1,
         "verbosity": -1,
@@ -388,14 +463,14 @@ def fit_two_stage_one_bag(
     init_score = np.column_stack([mu_train, np.zeros_like(mu_train)]).ravel(order="F")
 
     p2 = {
-        "learning_rate": learning_rate,        #  was 0.05
-        "num_leaves": num_leaves,              #  was 31
-        "max_depth": 6,
-        "min_child_samples": min_child_samples,#  was 20
-        "feature_fraction": feature_fraction,  #  was 0.9
+        "learning_rate": s2_learning_rate,         # ← stage-2 own
+        "num_leaves": s2_num_leaves,               # ← stage-2 own
+        "max_depth": s2_max_depth,                 # ← stage-2 own
+        "min_child_samples": s2_min_child_samples, # ← stage-2 own
+        "feature_fraction": s2_feature_fraction,   # ← stage-2 own
         "bagging_fraction": 0.9,
         "bagging_freq": 1,
-        "lambda_l2": lambda_l2,                #  was 0.1
+        "lambda_l2": lambda_l2,                    # ← stage-2 own (already)
         "feature_pre_filter": False,
         "force_col_wise": True,
         "verbosity": -1,
