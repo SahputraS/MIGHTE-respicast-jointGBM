@@ -314,7 +314,7 @@ def build_features(
         # Build all lag columns at once (avoids fragmentation warning)
         lag_parts = []
         for col in gt_cols:
-            for lag in [1, 2, 3, 4, 5, 6, 7, 8]:
+            for lag in [0, 1, 2, 3, 4, 5, 6, 7, 8]:
                 lag_parts.append(
                     df.groupby("location")[col]
                     .shift(lag)
