@@ -1,0 +1,9 @@
+pandas
+numpy
+scipy
+matplotlib
+statsmodels
+kneed
+lightgbm
+google-api-python-client
+python-dateutil
