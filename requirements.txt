@@ -3,5 +3,3 @@ numpy>=1.26
 scipy>=1.11
 lightgbm>=4.3
 lightgbmlss>=0.2.5
-optuna>=3.6
-matplotlib>=3.8

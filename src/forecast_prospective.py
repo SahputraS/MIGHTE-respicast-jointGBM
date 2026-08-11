@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from typing import List
 
@@ -18,31 +17,6 @@ def target_slug(target: str) -> str:
     if target == "ARI incidence":
         return "ARI"
     return target.replace(" ", "_")
-
-
-def load_best_params(params_dir: Path, target: str) -> dict:
-    """Load gridsearch-tuned hyperparameters for one target.
-
-    Looks for the JSON src/gridsearch_lgbm.py (or Gridsearch_LightGBM.ipynb)
-    saves (best_params_ablation_<target>.json, under the "gt_proc" key),
-    falling back to the legacy best_params_ablation*.json names.
-    """
-    slug = target_slug(target)
-    candidates = [
-        params_dir / f"best_params_ablation_{slug.lower()}.json",
-        params_dir / (f"best_params_ablation({slug.lower()}).json" if slug == "ARI" else "best_params_ablation.json"),
-    ]
-    for path in candidates:
-        if path.exists():
-            with open(path) as f:
-                data = json.load(f)
-            params = data.get("gt_proc", data)
-            print(f"[{target}] loaded tuned params from {path.name}")
-            return params
-    raise FileNotFoundError(
-        f"--params-dir given but no best-params JSON found for {target}. "
-        f"Checked: {[p.name for p in candidates]}"
-    )
 
 
 def parse_targets(text: str) -> List[str]:
@@ -76,13 +50,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run prospective RespiCast forecasts (ILI and/or ARI)")
     parser.add_argument("--hub-dir", default="RespiCast-SyndromicIndicators")
     parser.add_argument("--targets", default="ILI,ARI", help="Comma-separated: ILI,ARI")
-    parser.add_argument("--model-id", default="ISI_LightGBM")
+    parser.add_argument("--model-id", default="MIGHTE-jointGBM")
     parser.add_argument(
         "--locations",
         default=None,
         help="Optional comma-separated ISO2 locations to forecast (default: all hub locations)",
     )
-
 
     parser.add_argument("--canonical-data", default="data/processed/respicast_long_latest.csv")
     parser.add_argument("--summary-json", default="data/processed/respicast_long_summary.json")
@@ -142,19 +115,9 @@ def main() -> None:
     parser.add_argument("--s2-min-child-samples", type=int, default=None)  # I ADD
     parser.add_argument("--s2-feature-fraction", type=float, default=None) # I ADD
     parser.add_argument("--s2-max-depth", type=int, default=6)             # I ADD
-
+    
     parser.add_argument("--exclude-covid", action="store_true",
                         help="Exclude COVID period (2019-10 to 2022-09) from training")
-    parser.add_argument(
-        "--params-dir",
-        default=None,
-        help=(
-            "Directory containing gridsearch best-params JSON (best_params_ablation_<target>.json, "
-            "falling back to legacy best_params_ablation*.json names). When set, overrides "
-            "--num-leaves/--learning-rate/--min-child-samples/--feature-fraction/--stage1-rounds/"
-            "--stage2-rounds/--lambda-l2/--s2-min-child-samples with each target's own tuned values."
-        ),
-    )
     # ---------------------------------------------------
 
     args = parser.parse_args()
@@ -188,26 +151,6 @@ def main() -> None:
     origin_by_target = {}
 
     for target in targets:
-        if args.params_dir:
-            params = load_best_params(Path(args.params_dir).resolve(), target)
-            stage1_rounds = params["rounds"]
-            stage2_rounds = params["stage2_rounds"]
-            num_leaves = params["num_leaves"]
-            learning_rate = params["learning_rate"]
-            min_child_samples = params["min_child_samples"]
-            feature_fraction = params["feature_fraction"]
-            lambda_l2 = params["lambda_l2"]
-            s2_min_child_samples = params["s2_min_child_samples"]
-        else:
-            stage1_rounds = args.stage1_rounds
-            stage2_rounds = args.stage2_rounds
-            num_leaves = args.num_leaves
-            learning_rate = args.learning_rate
-            min_child_samples = args.min_child_samples
-            feature_fraction = args.feature_fraction
-            lambda_l2 = args.lambda_l2
-            s2_min_child_samples = args.s2_min_child_samples
-
         cfg = RuntimeConfig(
             data_file=canonical_path,
             target=target,
@@ -220,8 +163,8 @@ def main() -> None:
             location_bag_frac=args.location_bag_frac,
             location_bag_min=args.location_bag_min,
             seed=args.seed,
-            stage1_rounds=stage1_rounds,
-            stage2_rounds=stage2_rounds,
+            stage1_rounds=args.stage1_rounds,
+            stage2_rounds=args.stage2_rounds,
             own_lags=[int(x.strip()) for x in args.own_lags.split(",") if x.strip()],
             donor_lags=[int(x.strip()) for x in args.donor_lags.split(",") if x.strip()],
             donor_top_k=args.donor_top_k,
@@ -233,14 +176,14 @@ def main() -> None:
             locations_subset=location_scope,
             recent_weeks_required=args.recent_weeks_required,
             google_trends_file=Path(args.google_trends_file) if args.google_trends_file else None,  # I ADD
-            num_leaves=num_leaves,                          # I ADD
-            learning_rate=learning_rate,                    # I ADD
-            min_child_samples=min_child_samples,            # I ADD
-            feature_fraction=feature_fraction,              # I ADD
-            lambda_l2=lambda_l2,                            # I ADD
+            num_leaves=args.num_leaves,                    # I ADD
+            learning_rate=args.learning_rate,              # I ADD
+            min_child_samples=args.min_child_samples,      # I ADD
+            feature_fraction=args.feature_fraction,        # I ADD
+            lambda_l2=args.lambda_l2,                      # I ADD
             s2_num_leaves=args.s2_num_leaves,              # I ADD
             s2_learning_rate=args.s2_learning_rate,        # I ADD
-            s2_min_child_samples=s2_min_child_samples,      # I ADD
+            s2_min_child_samples=args.s2_min_child_samples,# I ADD
             s2_feature_fraction=args.s2_feature_fraction,  # I ADD
             s2_max_depth=args.s2_max_depth,                # I ADD
             exclude_covid=args.exclude_covid,              # I ADD
