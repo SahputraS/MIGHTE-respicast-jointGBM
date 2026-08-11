@@ -454,6 +454,8 @@ def fit_two_stage_one_bag(
         "bagging_freq": 1,
         "verbosity": -1,
         "random_state": int(seed),
+        "deterministic": True,
+        "force_row_wise": True,
     }
     d1 = lgb.Dataset(x, label=y, params={"verbose": -1})
     stage1 = lgb.train(p1, d1, num_boost_round=stage1_rounds, callbacks=[])
@@ -474,6 +476,7 @@ def fit_two_stage_one_bag(
         "force_col_wise": True,
         "verbosity": -1,
         "random_state": int(seed),
+        "deterministic": True,
     }
     d2 = lgb.Dataset(x, label=y, init_score=init_score, params={"verbose": -1}, free_raw_data=False)
     stage2 = LightGBMLSS(distribution_for_mode(sigma_mode))
