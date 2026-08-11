@@ -82,7 +82,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run rolling retrospective backtest for RespiCast ILI/ARI")
     parser.add_argument("--hub-dir", default="RespiCast-SyndromicIndicators")
     parser.add_argument("--targets", default="ILI,ARI", help="Comma-separated: ILI,ARI")
-    parser.add_argument("--model-id", default="MIGHTE-jointGBM")
+    parser.add_argument("--model-id", default="ISI_LightGBM")
     parser.add_argument(
         "--locations",
         default=None,

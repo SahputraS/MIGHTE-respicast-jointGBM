@@ -1,0 +1,13 @@
+{
+  "gt_proc": {
+    "num_leaves": 83,
+    "learning_rate": 0.006541411439840936,
+    "min_child_samples": 9,
+    "feature_fraction": 0.6941494551885474,
+    "rounds": 984,
+    "stage1_rounds_for_s2": 984,
+    "stage2_rounds": 248,
+    "lambda_l2": 3.3703365187056282,
+    "s2_min_child_samples": 44
+  }
+}
