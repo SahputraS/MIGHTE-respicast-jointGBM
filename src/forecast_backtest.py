@@ -165,6 +165,9 @@ def main() -> None:
     
     parser.add_argument("--exclude-covid", action="store_true",
                         help="Exclude the COVID-disrupted period (2019-10 to 2022-09) from training") # I add for exclude COVID period
+    parser.add_argument("--no-gt-lead", dest="include_gt_lead", action="store_false",
+                        help="Disable the GT 'nowcast' lag-1 feature (on by default; no-op without --google-trends-file)")
+    parser.set_defaults(include_gt_lead=True)
 
     args = parser.parse_args()
 
@@ -263,8 +266,9 @@ def main() -> None:
                 s2_min_child_samples=args.s2_min_child_samples,# I ADD
                 s2_feature_fraction=args.s2_feature_fraction,  # I ADD
                 s2_max_depth=args.s2_max_depth,                # I ADD
-                
+
                 exclude_covid=args.exclude_covid,                  # I ADD
+                include_gt_lead=args.include_gt_lead,              # I ADD
             )
             pred = run_prospective(cfg)
             if pred.empty:

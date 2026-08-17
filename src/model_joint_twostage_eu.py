@@ -88,6 +88,7 @@ class RuntimeConfig:
     s2_feature_fraction: Optional[float] = None    # I ADD
     s2_max_depth: int = 6                          # I ADD
     exclude_covid: bool = True           # I ADD
+    include_gt_lead: bool = True         # I ADD (GT "nowcast" lag-1 feature; no-op if google_trends_file is None)
 
 
 def parse_lag_string(lag_str: str) -> List[int]:
@@ -225,7 +226,8 @@ def build_features(
     other_target_donors: Dict[str, List[str]],
     donor_top_k: int,
     other_top_k: int,
-    gt_df: pd.DataFrame = None, 
+    gt_df: pd.DataFrame = None,
+    include_gt_lead: bool = True,
 ) -> pd.DataFrame:
     df = target_df.copy().sort_values(["location", "date"]).reset_index(drop=True)
     g = df.groupby("location", group_keys=False)
@@ -321,8 +323,20 @@ def build_features(
                     .rename(f"{col}_lag{lag}")
                 )
         
+        # Optional GT "nowcast" lead (lag = -1): GT for 1 week AFTER each row's own
+        # date. Valid because GT reports faster than official incidence — gt_df
+        # (unlike target_df/other_df) is never truncated to the anchor, so it can
+        # genuinely hold real data past it. Pulled directly from gt_df by shifting
+        # ITS date column back a week before merging — NOT via .shift(-1) on `df`,
+        # which is already anchor-truncated and has no future row to shift from.
+        if include_gt_lead:
+            lead_gt = gt_df[["location", "date"] + gt_cols].copy()
+            lead_gt["date"] = lead_gt["date"] - pd.Timedelta(weeks=1)
+            lead_gt = lead_gt.rename(columns={c: f"{c}_lag-1" for c in gt_cols})
+            df = df.merge(lead_gt, on=["location", "date"], how="left")
+
         df = pd.concat([df] + lag_parts, axis=1)
-        
+
         # Drop the unlagged columns (using raw GT would leak future info)
         df = df.drop(columns=gt_cols)
     ####
@@ -672,6 +686,7 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         donor_top_k=cfg.donor_top_k,
         other_top_k=cfg.other_top_k,
         gt_df=gt_df, ## google data
+        include_gt_lead=cfg.include_gt_lead,
     )
 
     

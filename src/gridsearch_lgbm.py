@@ -51,6 +51,7 @@ def build_matrix(
     donor_top_k: int,
     other_top_k: int,
     gt_file: Optional[str] = None,
+    include_gt_lead: bool = True,
 ) -> Tuple[pd.DataFrame, np.ndarray, list]:
     target_df = _load_target_panel(data_file, target_col, locations,
                                     cutoff_date=anchor, calendar_end_date=anchor,
@@ -70,6 +71,7 @@ def build_matrix(
         own_lags=list(own_lags), donor_lags=list(donor_lags),
         same_target_donors=donor_same, other_target_donors=donor_other,
         donor_top_k=donor_top_k, other_top_k=other_top_k, gt_df=gt_df,
+        include_gt_lead=include_gt_lead,
     )
     pooled = build_pooled_examples(feat, 4)
     feat_cols = feature_columns(pooled)
@@ -207,6 +209,7 @@ def run_gridsearch(
     anchor,
     gt_file: str,
     exclude_covid: bool = True,
+    include_gt_lead: bool = True,
     own_lags: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 26, 52),
     donor_lags: Sequence[int] = (1, 2, 3, 4, 8, 12),
     donor_top_k: int = 4,
@@ -246,6 +249,7 @@ def run_gridsearch(
     df, y, cols = build_matrix(
         data_file, target_col, other_col, locations, anchor, exclude_covid,
         own_lags, donor_lags, donor_top_k, other_top_k, gt_file=gt_file,
+        include_gt_lead=include_gt_lead,
     )
     if verbose:
         print(f"  {df.shape[0]} rows, {len(cols)} features")
@@ -279,7 +283,9 @@ def main() -> None:
     parser.add_argument("--anchor-date", default="2025-05-01")
     parser.add_argument("--gt-file", required=True, help="Path to denoised+detrended Google Trends wide CSV")
     parser.add_argument("--no-exclude-covid", dest="exclude_covid", action="store_false")
-    parser.set_defaults(exclude_covid=True)
+    parser.add_argument("--no-gt-lead", dest="include_gt_lead", action="store_false",
+                         help="Disable the GT 'nowcast' lag-1 feature (on by default)")
+    parser.set_defaults(exclude_covid=True, include_gt_lead=True)
     parser.add_argument("--seed", type=int, default=4321)
     parser.add_argument("--cutoff-q", type=float, default=0.75)
     parser.add_argument("--n-trials-stage1", type=int, default=70)
@@ -298,6 +304,7 @@ def main() -> None:
         anchor=args.anchor_date,
         gt_file=args.gt_file,
         exclude_covid=args.exclude_covid,
+        include_gt_lead=args.include_gt_lead,
         seed=args.seed,
         cutoff_q=args.cutoff_q,
         n_trials_stage1=args.n_trials_stage1,
