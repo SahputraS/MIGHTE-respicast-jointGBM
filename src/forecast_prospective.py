@@ -147,6 +147,8 @@ def main() -> None:
                         help="Exclude COVID period (2019-10 to 2022-09) from training")
     parser.add_argument("--no-gt-lead", dest="include_gt_lead", action="store_false",
                         help="Disable the GT 'nowcast' lag-1 feature (on by default; no-op without --google-trends-file)")
+    parser.add_argument("--gt-min-corr", type=float, default=0.3,
+                        help="Drop a GT term/location pair whose same-week |correlation| with the target is below this")
     parser.set_defaults(include_gt_lead=True)
     parser.add_argument(
         "--params-dir",
@@ -248,6 +250,7 @@ def main() -> None:
             s2_max_depth=args.s2_max_depth,                # I ADD
             exclude_covid=args.exclude_covid,              # I ADD
             include_gt_lead=args.include_gt_lead,          # I ADD
+            gt_min_corr=args.gt_min_corr,                  # I ADD
         )
 
         pred = run_prospective(cfg)

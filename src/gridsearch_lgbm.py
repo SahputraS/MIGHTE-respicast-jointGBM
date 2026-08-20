@@ -52,6 +52,7 @@ def build_matrix(
     other_top_k: int,
     gt_file: Optional[str] = None,
     include_gt_lead: bool = True,
+    gt_min_corr: float = 0.3,
 ) -> Tuple[pd.DataFrame, np.ndarray, list]:
     target_df = _load_target_panel(data_file, target_col, locations,
                                     cutoff_date=anchor, calendar_end_date=anchor,
@@ -71,7 +72,7 @@ def build_matrix(
         own_lags=list(own_lags), donor_lags=list(donor_lags),
         same_target_donors=donor_same, other_target_donors=donor_other,
         donor_top_k=donor_top_k, other_top_k=other_top_k, gt_df=gt_df,
-        include_gt_lead=include_gt_lead,
+        include_gt_lead=include_gt_lead, gt_min_corr=gt_min_corr,
     )
     pooled = build_pooled_examples(feat, 4)
     feat_cols = feature_columns(pooled)
@@ -122,8 +123,8 @@ def run_stage1_study(name, df, y, feat_cols, seed, n_trials, cutoff_q, verbose=T
     def objective(trial):
         params = {
             "num_leaves": trial.suggest_int("num_leaves", 50, 130),
-            "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.1, log=True),
-            "min_child_samples": trial.suggest_int("min_child_samples", 5, 100),
+            "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.1, log=True),
+            "min_child_samples": trial.suggest_int("min_child_samples", 2, 100),
             "feature_fraction": trial.suggest_float("feature_fraction", 0.6, 1.0),
         }
         rmse, best_round = rmse_for_config(df, y, feat_cols, params, seed, cutoff_q)
@@ -210,6 +211,7 @@ def run_gridsearch(
     gt_file: str,
     exclude_covid: bool = True,
     include_gt_lead: bool = True,
+    gt_min_corr: float = 0.3,
     own_lags: Sequence[int] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 26, 52),
     donor_lags: Sequence[int] = (1, 2, 3, 4, 8, 12),
     donor_top_k: int = 4,
@@ -249,7 +251,7 @@ def run_gridsearch(
     df, y, cols = build_matrix(
         data_file, target_col, other_col, locations, anchor, exclude_covid,
         own_lags, donor_lags, donor_top_k, other_top_k, gt_file=gt_file,
-        include_gt_lead=include_gt_lead,
+        include_gt_lead=include_gt_lead, gt_min_corr=gt_min_corr,
     )
     if verbose:
         print(f"  {df.shape[0]} rows, {len(cols)} features")
@@ -285,6 +287,8 @@ def main() -> None:
     parser.add_argument("--no-exclude-covid", dest="exclude_covid", action="store_false")
     parser.add_argument("--no-gt-lead", dest="include_gt_lead", action="store_false",
                          help="Disable the GT 'nowcast' lag-1 feature (on by default)")
+    parser.add_argument("--gt-min-corr", type=float, default=0.3,
+                         help="Drop a GT term/location pair whose same-week |correlation| with the target is below this")
     parser.set_defaults(exclude_covid=True, include_gt_lead=True)
     parser.add_argument("--seed", type=int, default=4321)
     parser.add_argument("--cutoff-q", type=float, default=0.75)
@@ -305,6 +309,7 @@ def main() -> None:
         gt_file=args.gt_file,
         exclude_covid=args.exclude_covid,
         include_gt_lead=args.include_gt_lead,
+        gt_min_corr=args.gt_min_corr,
         seed=args.seed,
         cutoff_q=args.cutoff_q,
         n_trials_stage1=args.n_trials_stage1,

@@ -18,4 +18,5 @@ python3 src/forecast_prospective.py \
   --params-dir "${ROOT_DIR}" \
   --google-trends-file "${ROOT_DIR}/google_preprocessing/data/processed/google_trends_preprocessed.csv" \
   --num-bags 25 \
+  --exclude-covid \
   "$@"

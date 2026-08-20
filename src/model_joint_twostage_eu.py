@@ -89,6 +89,7 @@ class RuntimeConfig:
     s2_max_depth: int = 6                          # I ADD
     exclude_covid: bool = True           # I ADD
     include_gt_lead: bool = True         # I ADD (GT "nowcast" lag-1 feature; no-op if google_trends_file is None)
+    gt_min_corr: float = 0.3             # I ADD (drop a GT term/location pair below this |correlation| with the target)
 
 
 def parse_lag_string(lag_str: str) -> List[int]:
@@ -228,6 +229,7 @@ def build_features(
     other_top_k: int,
     gt_df: pd.DataFrame = None,
     include_gt_lead: bool = True,
+    gt_min_corr: float = 0.3,
 ) -> pd.DataFrame:
     df = target_df.copy().sort_values(["location", "date"]).reset_index(drop=True)
     g = df.groupby("location", group_keys=False)
@@ -304,10 +306,36 @@ def build_features(
 
     df["season"] = df["date"].map(infer_flu_season)
 
-    ### Google Trends features 
+    ### Google Trends features
     if gt_df is not None:
         gt_cols = [c for c in gt_df.columns if c not in ["location", "date"]]
-        
+        gt_df = gt_df.copy()  # don't mutate the caller's frame
+
+        # Per-country relevance filtering: a (location, term) pair whose same-week
+        # correlation with the target is weaker than gt_min_corr gets NaN'd out here,
+        # before any lag/lead column is derived — so every downstream column for that
+        # pair (lag0..lag8 and lag-1 alike) inherits the exclusion automatically.
+        # Lives here (not in run_prospective) so every caller of build_features gets
+        # this feature-selection step for free, not just callers that remember to
+        # filter gt_df themselves first.
+        for loc in gt_df["location"].unique():
+            loc_mask = gt_df["location"] == loc
+            loc_gt = gt_df.loc[loc_mask]
+            loc_target = target_df.loc[target_df["location"] == loc]
+            merged = loc_gt[["date"] + gt_cols].merge(loc_target[["date", "y"]], on="date")
+            for col in gt_cols:
+                corr = merged[col].corr(merged["y"])
+                if abs(corr) < gt_min_corr:
+                    gt_df.loc[loc_mask, col] = np.nan
+
+        # Drop terms that are NaN in every location (nothing useful anywhere)
+        kept = gt_df[gt_cols].notna().any()
+        dropped_cols = kept[~kept].index.tolist()
+        if dropped_cols:
+            gt_df = gt_df.drop(columns=dropped_cols)
+            gt_cols = [c for c in gt_cols if c not in dropped_cols]
+        print(f"[GT] correlation filter (|r| >= {gt_min_corr}): {len(gt_cols)} kept, {len(dropped_cols)} dropped")
+
         # Merge on location + date
         df = df.merge(gt_df[["location", "date"] + gt_cols],
                       on=["location", "date"],
@@ -648,32 +676,14 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         target_mode=cfg.target_mode,
     )
     
-    # Use Google Trends if provided 
+    # Use Google Trends if provided
     gt_df = None
     if cfg.google_trends_file is not None:
         gt_df = pd.read_csv(cfg.google_trends_file, parse_dates=["date"])
         gt_cols = [c for c in gt_df.columns if c not in ["location", "date"]]
         print(f"[{cfg.target}] Loaded Google Trends: {gt_df.shape[0]} rows, {len(gt_cols)} terms")
-
-        # Per-country relevance filtering
-        for loc in gt_df["location"].unique():
-            loc_mask = gt_df["location"] == loc
-            loc_gt = gt_df.loc[loc_mask]
-            loc_target = target_df.loc[target_df["location"] == loc]
-            merged = loc_gt[["date"] + gt_cols].merge(
-                loc_target[["date", "y"]], on="date")
-            for col in gt_cols:
-                corr = merged[col].corr(merged["y"])
-                if abs(corr) < 0.3: #correlation less than 0.3 get turns to NAN and ignored
-                    gt_df.loc[loc_mask, col] = np.nan
-
-        # Drop clusters that are NaN in every country
-        kept = gt_df[gt_cols].notna().any()
-        kept_cols = kept[kept].index.tolist()
-        dropped_cols = kept[~kept].index.tolist()
-        if dropped_cols:
-            gt_df = gt_df.drop(columns=dropped_cols)
-        print(f"[{cfg.target}] GT after filtering: {len(kept_cols)} kept, {len(dropped_cols)} dropped")
+        # Per-country relevance filtering (correlation vs target) now happens inside
+        # build_features() itself, so it applies to every caller consistently.
         # ─────────────────────────────────────────────────────────────
         
     feat = build_features(
@@ -687,6 +697,7 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
         other_top_k=cfg.other_top_k,
         gt_df=gt_df, ## google data
         include_gt_lead=cfg.include_gt_lead,
+        gt_min_corr=cfg.gt_min_corr,
     )
 
     

@@ -1,13 +1,13 @@
 {
   "gt_proc": {
-    "num_leaves": 86,
-    "learning_rate": 0.012908991765022557,
-    "min_child_samples": 19,
-    "feature_fraction": 0.6328492267448844,
-    "rounds": 359,
-    "stage1_rounds_for_s2": 359,
-    "stage2_rounds": 141,
-    "lambda_l2": 4.877961162719176,
-    "s2_min_child_samples": 67
+    "num_leaves": 60,
+    "learning_rate": 0.02042865987965193,
+    "min_child_samples": 13,
+    "feature_fraction": 0.6520594060694896,
+    "rounds": 769,
+    "stage1_rounds_for_s2": 769,
+    "stage2_rounds": 167,
+    "lambda_l2": 4.961044557836473,
+    "s2_min_child_samples": 103
   }
 }

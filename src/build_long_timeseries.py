@@ -11,7 +11,7 @@ import pandas as pd
 from io_respicast import discover_target_files, load_locations_map, read_target_file, source_priority_map
 
 
-def resolve_long_timeseries(hub_dir: Path) -> pd.DataFrame:
+def _raw_frame(hub_dir: Path) -> pd.DataFrame:
     target_data_dir = hub_dir / "target-data"
     specs = discover_target_files(target_data_dir)
     if not specs:
@@ -28,7 +28,11 @@ def resolve_long_timeseries(hub_dir: Path) -> pd.DataFrame:
         )["value"]
         .mean()
     )
+    return raw
 
+
+def _select_canonical(raw: pd.DataFrame, hub_dir: Path) -> pd.DataFrame:
+    raw = raw.copy()
     src_rank: Dict[str, int] = source_priority_map()
     raw["source_priority"] = raw["source"].map(src_rank).fillna(999).astype(int)
     raw["is_latest"] = (raw["file_kind"] == "latest").astype(int)
@@ -72,6 +76,39 @@ def resolve_long_timeseries(hub_dir: Path) -> pd.DataFrame:
             selected[col] = pd.NA
 
     return selected.loc[:, final_cols]
+
+
+def resolve_long_timeseries(hub_dir: Path) -> pd.DataFrame:
+    """Canonical series reflecting the current, most-revised knowledge of every
+    week — latest-*.csv rows win unconditionally over any snapshot, regardless
+    of how old or new. Right for prospective forecasting (you want the best
+    known value for every past week). NOT vintage-faithful for backtesting —
+    see resolve_long_timeseries_asof for that."""
+    raw = _raw_frame(hub_dir)
+    return _select_canonical(raw, hub_dir)
+
+
+def resolve_long_timeseries_asof(hub_dir: Path, as_of_date) -> pd.DataFrame:
+    """Vintage-aware canonical series: only uses data that would genuinely have
+    been available by `as_of_date`.
+
+    latest-*.csv files are excluded entirely — they carry no date of their own
+    and always reflect "now", so including them would reintroduce exactly the
+    look-ahead bias this function exists to avoid (e.g. a February-origin
+    backtest run today silently training on February data that's since been
+    revised/backfilled well past what a real forecaster had in February).
+    Only dated snapshot files with snapshot_date <= as_of_date are used; for
+    each (target, location, truth_date), the newest such snapshot wins, with
+    source priority (ERVISS before FluID) breaking remaining ties. A week with
+    no qualifying snapshot is simply absent, matching what a real forecaster
+    would have faced.
+    """
+    as_of = pd.to_datetime(as_of_date)
+    raw = _raw_frame(hub_dir)
+    raw = raw[(raw["file_kind"] == "snapshot") & (raw["snapshot_date"] <= as_of)].copy()
+    if raw.empty:
+        raise ValueError(f"No snapshot data available as of {as_of.date()} under {hub_dir}")
+    return _select_canonical(raw, hub_dir)
 
 
 def main() -> None:
