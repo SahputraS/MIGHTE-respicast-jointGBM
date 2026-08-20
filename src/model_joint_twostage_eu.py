@@ -475,6 +475,7 @@ def fit_two_stage_one_bag(
     s2_min_child_samples: Optional[int] = None,
     s2_feature_fraction: Optional[float] = None,
     s2_max_depth: int = 6,
+    num_threads: int = 0,  # 0 = LightGBM's own "use all available cores" default
 ) -> Tuple[lgb.Booster, LightGBMLSS]:
     x = X_train.astype(float)
     y = np.asarray(y_train, dtype=float)
@@ -498,6 +499,7 @@ def fit_two_stage_one_bag(
         "random_state": int(seed),
         "deterministic": True,
         "force_row_wise": True,
+        "num_threads": num_threads,
     }
     d1 = lgb.Dataset(x, label=y, params={"verbose": -1})
     stage1 = lgb.train(p1, d1, num_boost_round=stage1_rounds, callbacks=[])
@@ -519,6 +521,7 @@ def fit_two_stage_one_bag(
         "verbosity": -1,
         "random_state": int(seed),
         "deterministic": True,
+        "num_threads": num_threads,
     }
     d2 = lgb.Dataset(x, label=y, init_score=init_score, params={"verbose": -1}, free_raw_data=False)
     stage2 = LightGBMLSS(distribution_for_mode(sigma_mode))

@@ -86,7 +86,7 @@ def build_matrix(
     return df, y, feat_cols
 
 
-def rmse_for_config(df, y, feat_cols, params, seed, cutoff_q) -> Tuple[float, int]:
+def rmse_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads: int = 0) -> Tuple[float, int]:
     cut = df["date"].quantile(cutoff_q)
     tr = (df["date"] <= cut).to_numpy()
     X_tr, y_tr = df.loc[tr, feat_cols].astype(float), y[tr]
@@ -102,6 +102,7 @@ def rmse_for_config(df, y, feat_cols, params, seed, cutoff_q) -> Tuple[float, in
         "bagging_fraction": 0.9, "bagging_freq": 1,
         "seed": seed, "deterministic": True, "force_row_wise": True,
         "verbosity": -1,
+        "num_threads": num_threads,
     }
     d_tr = lgb.Dataset(X_tr, label=y_tr)
     d_va = lgb.Dataset(X_va, label=y_va, reference=d_tr)
@@ -119,7 +120,15 @@ def rmse_for_config(df, y, feat_cols, params, seed, cutoff_q) -> Tuple[float, in
     return rmse, int(model.best_iteration)
 
 
-def run_stage1_study(name, df, y, feat_cols, seed, n_trials, cutoff_q, verbose=True) -> optuna.Study:
+def run_stage1_study(
+    name, df, y, feat_cols, seed, n_trials, cutoff_q, verbose=True,
+    num_threads: int = 0, n_jobs: int = 1,
+) -> optuna.Study:
+    """num_threads: threads per individual LightGBM fit (0 = LightGBM's "all cores"
+    default). n_jobs: how many Optuna trials run concurrently (Optuna threading, not
+    processes). When n_jobs > 1, pass a num_threads that keeps n_jobs * num_threads
+    within your actual core budget -- otherwise the trials fight each other for
+    cores instead of speeding things up."""
     def objective(trial):
         params = {
             "num_leaves": trial.suggest_int("num_leaves", 50, 130),
@@ -127,14 +136,14 @@ def run_stage1_study(name, df, y, feat_cols, seed, n_trials, cutoff_q, verbose=T
             "min_child_samples": trial.suggest_int("min_child_samples", 2, 100),
             "feature_fraction": trial.suggest_float("feature_fraction", 0.6, 1.0),
         }
-        rmse, best_round = rmse_for_config(df, y, feat_cols, params, seed, cutoff_q)
+        rmse, best_round = rmse_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads=num_threads)
         trial.set_user_attr("best_round", best_round)
         return rmse
 
     if verbose:
-        print(f"=== Stage 1 (RMSE) optimizing: {name} ===")
+        print(f"=== Stage 1 (RMSE) optimizing: {name} ===  (n_jobs={n_jobs}, num_threads={num_threads})")
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=seed))
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=verbose)
+    study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=verbose)
     return study
 
 
@@ -158,7 +167,11 @@ def wis_vectorized(pred_q: np.ndarray, truth: np.ndarray, quantiles: np.ndarray)
     return (0.5 * np.abs(truth - median) + interval_sum) / (k + 0.5)
 
 
-def run_stage2_study(name, df, y, feat_cols, stage1_best, seed, n_trials, cutoff_q, verbose=True) -> optuna.Study:
+def run_stage2_study(
+    name, df, y, feat_cols, stage1_best, seed, n_trials, cutoff_q, verbose=True,
+    num_threads: int = 0, n_jobs: int = 1,
+) -> optuna.Study:
+    """See run_stage1_study's docstring for num_threads/n_jobs semantics."""
     cut = df["date"].quantile(cutoff_q)
     tr = (df["date"] <= cut).to_numpy()
     va = ~tr
@@ -179,6 +192,7 @@ def run_stage2_study(name, df, y, feat_cols, stage1_best, seed, n_trials, cutoff
             lambda_l2=trial.suggest_float("lambda_l2", 1e-3, 5.0, log=True),
             s2_min_child_samples=trial.suggest_int("s2_min_child_samples", 10, 120),
             s2_num_leaves=None, s2_learning_rate=None, s2_feature_fraction=None, s2_max_depth=6,
+            num_threads=num_threads,
         )
         pred_q = predict_quantiles(stage1, stage2, X_va, QUANTILES, target_mode="delta_log", current_obs=base_va)
         pred_q = np.clip(np.nan_to_num(pred_q, nan=0.0, posinf=1e7, neginf=0.0), 0.0, 1e7)
@@ -186,9 +200,10 @@ def run_stage2_study(name, df, y, feat_cols, stage1_best, seed, n_trials, cutoff
         return score if np.isfinite(score) else 1e12
 
     if verbose:
-        print(f"=== Stage 2 (WIS) optimizing: {name}  (stage1 rounds frozen at {stage1_best['rounds']}) ===")
+        print(f"=== Stage 2 (WIS) optimizing: {name}  (stage1 rounds frozen at {stage1_best['rounds']}, "
+              f"n_jobs={n_jobs}, num_threads={num_threads}) ===")
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=seed))
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=verbose)
+    study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=verbose)
     study.set_user_attr("stage1_rounds", stage1_best["rounds"])
     return study
 
