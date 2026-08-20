@@ -1,0 +1,48 @@
+{
+  "cases_study_best": {
+    "value": 587.6518378918712,
+    "params": {
+      "num_leaves": 50,
+      "learning_rate": 0.09733168223792008,
+      "min_child_samples": 9,
+      "feature_fraction": 0.8445331506910372
+    },
+    "rounds": 11
+  },
+  "l2_study_best": {
+    "value": 0.441678384580912,
+    "params": {
+      "num_leaves": 95,
+      "learning_rate": 0.0038842813927036156,
+      "min_child_samples": 21,
+      "feature_fraction": 0.6532806870232777
+    },
+    "rounds": 1197
+  },
+  "cross_eval": {
+    "cases_winner": {
+      "params": {
+        "num_leaves": 50,
+        "learning_rate": 0.09733168223792008,
+        "min_child_samples": 9,
+        "feature_fraction": 0.8445331506910372
+      },
+      "rounds": 11,
+      "cases_rmse": 587.6518378918712,
+      "l2": 0.5226910645732528,
+      "norm_rmse": 0.7858951938993025
+    },
+    "l2_winner": {
+      "params": {
+        "num_leaves": 95,
+        "learning_rate": 0.0038842813927036156,
+        "min_child_samples": 21,
+        "feature_fraction": 0.6532806870232777
+      },
+      "rounds": 1197,
+      "cases_rmse": 685.1444793280546,
+      "l2": 0.4416783839325151,
+      "norm_rmse": 0.7040292057948636
+    }
+  }
+}

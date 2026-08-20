@@ -90,6 +90,7 @@ class RuntimeConfig:
     exclude_covid: bool = True           # I ADD
     include_gt_lead: bool = True         # I ADD (GT "nowcast" lag-1 feature; no-op if google_trends_file is None)
     gt_min_corr: float = 0.3             # I ADD (drop a GT term/location pair below this |correlation| with the target)
+    num_threads: int = 0                 # I ADD (0 = LightGBM's own "use all available cores" default)
 
 
 def parse_lag_string(lag_str: str) -> List[int]:
@@ -785,6 +786,7 @@ def run_prospective(cfg: RuntimeConfig) -> pd.DataFrame:
                         s2_min_child_samples=cfg.s2_min_child_samples, # I ADD
                         s2_feature_fraction=cfg.s2_feature_fraction,   # I ADD
                         s2_max_depth=cfg.s2_max_depth,                 # I ADD
+                        num_threads=cfg.num_threads,                   # I ADD
                     )
                     
                     q = predict_quantiles(

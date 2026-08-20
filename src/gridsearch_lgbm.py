@@ -86,7 +86,14 @@ def build_matrix(
     return df, y, feat_cols
 
 
-def rmse_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads: int = 0) -> Tuple[float, int]:
+def l2_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads: int = 0) -> Tuple[float, int]:
+    """Native delta-log L2 (MSE) -- self-consistent: early stopping and the returned
+    score are the same metric, in the same space the model actually predicts in.
+    Chosen over cases-space RMSE because the log-space compression keeps every
+    location roughly scale-balanced; raw cases-space RMSE is dominated by whichever
+    high-volume locations/weeks have the largest absolute case counts, and (being
+    noisier round-to-round) can reward a shallow, undertrained model that got a lucky
+    validation read over one that actually generalizes."""
     cut = df["date"].quantile(cutoff_q)
     tr = (df["date"] <= cut).to_numpy()
     X_tr, y_tr = df.loc[tr, feat_cols].astype(float), y[tr]
@@ -108,16 +115,12 @@ def rmse_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads: int =
     d_va = lgb.Dataset(X_va, label=y_va, reference=d_tr)
     model = lgb.train(
         p1, d_tr,
-        num_boost_round=1000,
+        num_boost_round=3000,  # low learning rates genuinely need the room; early stopping is self-consistent now
         valid_sets=[d_va],
         callbacks=[lgb.early_stopping(50, verbose=False)],
     )
-    pred_dlog = model.predict(X_va, num_iteration=model.best_iteration)
-    base_va = np.log1p(np.clip(df.loc[~tr, "y_base"].to_numpy(float), 0, None))
-    pred_cases = np.maximum(np.expm1(pred_dlog + base_va), 0.0)
-    actual_cases = df.loc[~tr, "target"].to_numpy(float)
-    rmse = float(np.sqrt(np.mean((pred_cases - actual_cases) ** 2)))
-    return rmse, int(model.best_iteration)
+    l2 = float(model.best_score["valid_0"]["l2"])
+    return l2, int(model.best_iteration)
 
 
 def run_stage1_study(
@@ -136,12 +139,12 @@ def run_stage1_study(
             "min_child_samples": trial.suggest_int("min_child_samples", 2, 100),
             "feature_fraction": trial.suggest_float("feature_fraction", 0.6, 1.0),
         }
-        rmse, best_round = rmse_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads=num_threads)
+        l2, best_round = l2_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads=num_threads)
         trial.set_user_attr("best_round", best_round)
-        return rmse
+        return l2
 
     if verbose:
-        print(f"=== Stage 1 (RMSE) optimizing: {name} ===  (n_jobs={n_jobs}, num_threads={num_threads})")
+        print(f"=== Stage 1 (delta-log L2) optimizing: {name} ===  (n_jobs={n_jobs}, num_threads={num_threads})")
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=seed))
     study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=verbose)
     return study
@@ -276,7 +279,7 @@ def run_gridsearch(
     study_s2 = run_stage2_study(GT_VARIANT, df, y, cols, stage1_best, seed, n_trials_stage2, cutoff_q, verbose)
     best = {GT_VARIANT: pack(study_s1, study_s2)}
     if verbose:
-        print(f"best stage1 RMSE={study_s1.best_value:.3f}  best stage2 WIS={study_s2.best_value:.4f}")
+        print(f"best stage1 L2={study_s1.best_value:.5f}  best stage2 WIS={study_s2.best_value:.4f}")
 
     if output_path is not None:
         output_path = Path(output_path)

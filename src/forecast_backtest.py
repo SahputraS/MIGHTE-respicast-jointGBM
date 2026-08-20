@@ -196,6 +196,11 @@ def main() -> None:
     parser.add_argument("--gt-min-corr", type=float, default=0.3,
                         help="Drop a GT term/location pair whose same-week |correlation| with the target is below this")
     parser.set_defaults(include_gt_lead=True)
+    parser.add_argument("--num-threads", type=int, default=0,
+                        help="Threads per LightGBM fit (0 = LightGBM's own 'use all available cores' default). "
+                             "Set this on a shared/quota-limited server -- leaving it at 0 there can crash with "
+                             "'libgomp: Thread creation failed: Resource temporarily unavailable' if the machine's "
+                             "real CPU quota is far below its reported core count.")
     parser.add_argument(
         "--params-dir",
         default=None,
@@ -360,6 +365,7 @@ def main() -> None:
                 exclude_covid=args.exclude_covid,                  # I ADD
                 include_gt_lead=args.include_gt_lead,              # I ADD
                 gt_min_corr=args.gt_min_corr,                      # I ADD
+                num_threads=args.num_threads,                      # I ADD
             )
             pred = run_prospective(cfg)
             if pred.empty:

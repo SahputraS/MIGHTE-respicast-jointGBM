@@ -13,7 +13,7 @@ PROJECT = Path("/data/shared/nsahputra/projects/MIGHTE-respicast-jointGBM")
 
 # Season-holdout-safe gridsearch output (see Season_Holdout_Gridsearch.ipynb): one
 # file per target/variant, single top-level key matching the variant name.
-PARAMS_JSON = PROJECT / "best_params_season2025_26_holdout_ari_gt_proc.json"
+PARAMS_JSON = PROJECT / "best_params_season2025_26_holdout_ili_gt_proc.json"
 HUB_DIR = PROJECT / "RespiCast-SyndromicIndicators"
 
 CANONICAL_DATA = PROJECT / "data" / "processed" / "respicast_long_latest.csv"
@@ -25,7 +25,7 @@ SUMMARY_JSON = PROJECT / "data" / "processed" / "respicast_long_summary.json"
 # every pre-season feature value.
 GOOGLE_TRENDS_FILE = PROJECT / "google_preprocessing" / "data" / "processed" / "google_trends_preprocessed_season_holdout.csv"
 
-OUTPUT_DIR = Path("/data/shared/nsahputra/outputs/MIGHTE-ISI_lgbm_google_ari(25bags)")
+OUTPUT_DIR = Path("/data/shared/nsahputra/outputs/MIGHTE-ISI_lgbm_google_ili(25bags)")
 
 # Threads per LightGBM fit -- keep this at 1 on a quota-limited shared server (e.g. a
 # 0.1 CPU allocation). Leaving LightGBM at its own "use all available cores" default
@@ -40,9 +40,6 @@ def require_exists(path, label):
 
 
 # server setup: do not accidentally use all CPU cores on shared server
-# (was hardcoded to "100" -- almost certainly wrong on a quota-limited box; use
-# NUM_THREADS above, which also now gets passed through to LightGBM itself via
-# --num-threads below, not just these BLAS/OpenMP env vars)
 os.environ["OMP_NUM_THREADS"] = NUM_THREADS
 os.environ["OPENBLAS_NUM_THREADS"] = NUM_THREADS
 os.environ["MKL_NUM_THREADS"] = NUM_THREADS
@@ -81,7 +78,7 @@ cmd = [
     str(PROJECT / "src" / "forecast_backtest.py"),
 
     "--hub-dir", str(HUB_DIR),
-    "--targets", "ARI",
+    "--targets", "ILI",
     "--start-origin-date", START_ORIGIN,
     "--submission-dir", str(OUTPUT_DIR),
     "--snapshots-only",
