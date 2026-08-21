@@ -9,7 +9,9 @@ from datetime import date
 from pathlib import Path
 
 
-PROJECT = Path("/data/shared/nsahputra/projects/MIGHTE-respicast-jointGBM")
+# MIGHTE_PROJECT_ROOT lets this run locally for testing; unset (the normal case on
+# the server) it falls back to the hardcoded server path unchanged.
+PROJECT = Path(os.environ.get("MIGHTE_PROJECT_ROOT", "/data/shared/nsahputra/projects/MIGHTE-respicast-jointGBM"))
 
 # Season-holdout-safe gridsearch output (see Season_Holdout_Gridsearch.ipynb): one
 # file per target/variant, single top-level key matching the variant name.
@@ -22,13 +24,15 @@ SUMMARY_JSON = PROJECT / "data" / "processed" / "respicast_long_summary.json"
 # No Google Trends file for this run -- deliberately the no_gt variant, to compare
 # against run_gt_ari.py's gt_proc run.
 
-OUTPUT_DIR = Path("/data/shared/nsahputra/outputs/MIGHTE-ISI_lgbm_nogoogle_ari(25bags)")
+OUTPUT_DIR = Path(os.environ.get(
+    "MIGHTE_OUTPUT_ROOT", "/data/shared/nsahputra/outputs"
+)) / "MIGHTE-ISI_lgbm_nogoogle_ari(25bags)"
 
 # Threads per LightGBM fit -- keep this at 1 on a quota-limited shared server (e.g. a
 # 0.1 CPU allocation). Leaving LightGBM at its own "use all available cores" default
 # there crashes with "libgomp: Thread creation failed: Resource temporarily
 # unavailable" the moment it tries to spawn more threads than the cgroup allows.
-NUM_THREADS = "1"
+NUM_THREADS = os.environ.get("MIGHTE_NUM_THREADS", "1")
 
 
 def require_exists(path, label):

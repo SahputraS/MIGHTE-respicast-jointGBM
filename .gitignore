@@ -7,5 +7,9 @@ __pycache__/
 # External hub checkout — re-cloned by run/*.sh and the notebooks, not source
 RespiCast-SyndromicIndicators/
 
+# Vintage snapshot cache — regenerated on demand by Season_Holdout_Gridsearch.ipynb
+# (resolve_long_timeseries_asof), not source; grows to 100s of MB
+data/processed/vintage/
+
 # Superseded / experimental submission files from testing
 forecasts/prospective/submission/*MIGHTE-jointGBM*.csv

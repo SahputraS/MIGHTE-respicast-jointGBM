@@ -18,6 +18,7 @@ only:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Dict, Optional, Sequence, Tuple
@@ -86,7 +87,25 @@ def build_matrix(
     return df, y, feat_cols
 
 
-def l2_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads: int = 0) -> Tuple[float, int]:
+def _pruning_callback(trial: "optuna.Trial", valid_name: str = "valid_0", metric: str = "l2", report_interval: int = 25):
+    """Reports the validation metric to `trial` every `report_interval` rounds and
+    raises optuna.TrialPruned if the pruner says this trial is unpromising relative
+    to previously completed trials at the same round. Hand-rolled instead of
+    optuna_integration.LightGBMPruningCallback because that package isn't installed
+    here and this is ~8 lines -- same idea, no new dependency."""
+    def _callback(env):
+        if (env.iteration + 1) % report_interval != 0:
+            return
+        for data_name, eval_name, result, _ in env.evaluation_result_list:
+            if data_name == valid_name and eval_name == metric:
+                trial.report(result, step=env.iteration)
+                if trial.should_prune():
+                    raise optuna.TrialPruned(f"pruned at iteration {env.iteration} ({metric}={result:.5f})")
+                return
+    return _callback
+
+
+def l2_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads: int = 0, trial: "optuna.Trial | None" = None) -> Tuple[float, int]:
     """Native delta-log L2 (MSE) -- self-consistent: early stopping and the returned
     score are the same metric, in the same space the model actually predicts in.
     Chosen over cases-space RMSE because the log-space compression keeps every
@@ -113,39 +132,88 @@ def l2_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads: int = 0
     }
     d_tr = lgb.Dataset(X_tr, label=y_tr)
     d_va = lgb.Dataset(X_va, label=y_va, reference=d_tr)
+
+    # min_delta: an improvement has to move L2 by at least this much to reset the
+    # patience clock. Without it, a very low learning_rate can crawl along a
+    # practically-flat plateau for thousands of rounds -- each round's change is
+    # noise-level but technically nonzero, so plain early stopping (any improvement,
+    # however tiny, resets the counter) never triggers and just rides out to
+    # whatever num_boost_round cap is set. Scaled to var(y_va), not a fixed constant,
+    # since delta-log L2's absolute scale differs a few-fold between targets/variants
+    # -- and specifically var(y_va), not var(y_tr): what's being early-stopped on is
+    # *validation* L2, and the two aren't interchangeable. For ARI, var(y_va) is only
+    # ~29% of var(y_tr) (the held-out date range is calmer than the multi-year
+    # training range it's compared against) -- scaling off var(y_tr) would size the
+    # threshold to the wrong distribution and run ~3.4x too aggressive for ARI
+    # specifically, even though it happened not to visibly hurt the one ARI config
+    # tested against that version.
+    min_delta = 2e-4 * float(np.var(y_va))
+    callbacks = [lgb.early_stopping(50, verbose=False, min_delta=min_delta)]
+    if trial is not None:
+        callbacks.append(_pruning_callback(trial, valid_name="valid_0", metric="l2"))
     model = lgb.train(
         p1, d_tr,
         num_boost_round=3000,  # low learning rates genuinely need the room; early stopping is self-consistent now
         valid_sets=[d_va],
-        callbacks=[lgb.early_stopping(50, verbose=False)],
+        callbacks=callbacks,
     )
     l2 = float(model.best_score["valid_0"]["l2"])
     return l2, int(model.best_iteration)
 
 
+def _sampler_seed(seed: int, name: str, y: np.ndarray) -> int:
+    """Perturb `seed` deterministically using the actual data, not just `name` --
+    `name` alone (e.g. "no_gt") repeats across every target a caller loops over, so
+    two genuinely different searches (different target, same variant name) would
+    otherwise share the exact same TPESampler seed and could coincidentally replay
+    an identical early-trial sequence, landing on a bit-identical "best" despite
+    being fit on completely different data. Same data -> same seed every time
+    (still fully reproducible); different data -> a different sampler seed."""
+    h = hashlib.sha256(f"{name}:{y.shape[0]}:{float(np.sum(y)):.10f}".encode()).hexdigest()
+    return seed + int(h[:8], 16) % 100_000
+
+
 def run_stage1_study(
     name, df, y, feat_cols, seed, n_trials, cutoff_q, verbose=True,
     num_threads: int = 0, n_jobs: int = 1,
+    use_pruning: bool = False, pruner: Optional["optuna.pruners.BasePruner"] = None,
 ) -> optuna.Study:
     """num_threads: threads per individual LightGBM fit (0 = LightGBM's "all cores"
     default). n_jobs: how many Optuna trials run concurrently (Optuna threading, not
     processes). When n_jobs > 1, pass a num_threads that keeps n_jobs * num_threads
     within your actual core budget -- otherwise the trials fight each other for
-    cores instead of speeding things up."""
+    cores instead of speeding things up.
+
+    use_pruning: stop a trial's LightGBM fit early (every 25 rounds, after round 200)
+    if its validation L2 is worse than the median of already-completed trials at the
+    same round -- saves the rounds a hopeless config would otherwise burn riding out
+    to its own early-stopping point. Only affects stage 1 (the long, per-round fit);
+    stage 2 has no per-round loop to prune from. Off by default so existing runs are
+    unaffected; pass a custom `pruner` to override the default MedianPruner settings."""
     def objective(trial):
         params = {
-            "num_leaves": trial.suggest_int("num_leaves", 50, 130),
+            "num_leaves": trial.suggest_int("num_leaves", 50, 200),
             "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.1, log=True),
-            "min_child_samples": trial.suggest_int("min_child_samples", 2, 100),
+            "min_child_samples": trial.suggest_int("min_child_samples", 15, 100),
             "feature_fraction": trial.suggest_float("feature_fraction", 0.6, 1.0),
         }
-        l2, best_round = l2_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads=num_threads)
+        l2, best_round = l2_for_config(df, y, feat_cols, params, seed, cutoff_q, num_threads=num_threads,
+                                        trial=trial if use_pruning else None)
         trial.set_user_attr("best_round", best_round)
         return l2
 
     if verbose:
-        print(f"=== Stage 1 (delta-log L2) optimizing: {name} ===  (n_jobs={n_jobs}, num_threads={num_threads})")
-    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=seed))
+        print(f"=== Stage 1 (delta-log L2) optimizing: {name} ===  "
+              f"(n_jobs={n_jobs}, num_threads={num_threads}, use_pruning={use_pruning})")
+    study_pruner = pruner if pruner is not None else (
+        optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=200) if use_pruning
+        else optuna.pruners.NopPruner()
+    )
+    study = optuna.create_study(
+        direction="minimize",
+        sampler=optuna.samplers.TPESampler(seed=_sampler_seed(seed, name, y)),
+        pruner=study_pruner,
+    )
     study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=verbose)
     return study
 
@@ -190,9 +258,9 @@ def run_stage2_study(
             stage1_rounds=stage1_best["rounds"], seed=seed,
             num_leaves=stage1_best["num_leaves"], learning_rate=stage1_best["learning_rate"],
             min_child_samples=stage1_best["min_child_samples"], feature_fraction=stage1_best["feature_fraction"],
-            stage2_rounds=trial.suggest_int("stage2_rounds", 30, 250),
+            stage2_rounds=trial.suggest_int("stage2_rounds", 30, 500),
             sigma_mode="bounded",
-            lambda_l2=trial.suggest_float("lambda_l2", 1e-3, 5.0, log=True),
+            lambda_l2=trial.suggest_float("lambda_l2", 1e-3, 20.0, log=True),
             s2_min_child_samples=trial.suggest_int("s2_min_child_samples", 10, 120),
             s2_num_leaves=None, s2_learning_rate=None, s2_feature_fraction=None, s2_max_depth=6,
             num_threads=num_threads,
@@ -205,7 +273,7 @@ def run_stage2_study(
     if verbose:
         print(f"=== Stage 2 (WIS) optimizing: {name}  (stage1 rounds frozen at {stage1_best['rounds']}, "
               f"n_jobs={n_jobs}, num_threads={num_threads}) ===")
-    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=seed))
+    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=_sampler_seed(seed, name, y)))
     study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs, show_progress_bar=verbose)
     study.set_user_attr("stage1_rounds", stage1_best["rounds"])
     return study
@@ -219,6 +287,96 @@ def pack(study_s1: optuna.Study, study_s2: optuna.Study) -> Dict:
         **{f"s2_{k}" if not k.startswith(("stage2", "lambda", "sigma", "s2")) else k: v
            for k, v in study_s2.best_params.items()},
     }
+
+
+def pack_rolling(study_s1: optuna.Study, stage2_params: Dict, stage1_rounds: int) -> Dict:
+    """Same shape as pack(), but for a stage-2 param dict chosen by
+    refine_stage2_rolling() instead of study_s2.best_params directly."""
+    return {
+        **study_s1.best_params,
+        "rounds": study_s1.best_trial.user_attrs["best_round"],
+        "stage1_rounds_for_s2": stage1_rounds,
+        **{f"s2_{k}" if not k.startswith(("stage2", "lambda", "sigma", "s2")) else k: v
+           for k, v in stage2_params.items()},
+    }
+
+
+def refine_stage2_rolling(
+    name, df, y, feat_cols, stage1_best, study_s2, seed,
+    origins: Sequence[Tuple[float, float]] = ((0.60, 0.75), (0.75, 0.90), (0.90, 1.0)),
+    top_k: int = 8,
+    num_threads: int = 0,
+    verbose: bool = True,
+) -> Tuple[Dict, Dict]:
+    """Re-score the top_k stage-2 Optuna trials (already ranked by single-split WIS)
+    across several rolling forecast origins, and pick whichever has the best mean
+    WIS across origins -- so the final choice isn't just whatever happened to look
+    best on the one 75/25 split. Cheap relative to redoing the full Optuna search
+    under rolling CV: only top_k already-good candidates get re-evaluated, not all
+    n_trials.
+
+    origins: list of (start_q, end_q) date-quantiles. Train is always [0, start_q]
+    (expanding window, mirrors a real forecaster having more history over time);
+    valid is (start_q, end_q]. Windows are deliberately non-overlapping across
+    different calendar stretches (not just "more training data, same tail") so a
+    candidate can't look robust by re-testing on the same period three times.
+
+    Returns (winning_params, diagnostics) where diagnostics has every candidate's
+    per-origin and aggregate scores, for inspection.
+    """
+    completed = [t for t in study_s2.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    top_trials = sorted(completed, key=lambda t: t.value)[:top_k]
+
+    dates = df["date"]
+    results = []
+    for trial in top_trials:
+        params = trial.params
+        origin_wis = []
+        for start_q, end_q in origins:
+            start_date = dates.quantile(start_q)
+            end_date = dates.quantile(end_q)
+            tr_mask = (df["date"] <= start_date).to_numpy()
+            va_mask = ((df["date"] > start_date) & (df["date"] <= end_date)).to_numpy()
+            if tr_mask.sum() < 100 or va_mask.sum() < 20:
+                continue
+
+            X_tr, y_tr = df.loc[tr_mask, feat_cols].astype(float), y[tr_mask]
+            X_va = df.loc[va_mask, feat_cols].astype(float)
+            base_va = df.loc[va_mask, "y_base"].to_numpy(float)
+            actual = df.loc[va_mask, "target"].to_numpy(float)
+            ok = np.isfinite(actual)
+
+            stage1, stage2 = fit_two_stage_one_bag(
+                X_train=X_tr, y_train=y_tr,
+                stage1_rounds=stage1_best["rounds"], seed=seed,
+                num_leaves=stage1_best["num_leaves"], learning_rate=stage1_best["learning_rate"],
+                min_child_samples=stage1_best["min_child_samples"], feature_fraction=stage1_best["feature_fraction"],
+                stage2_rounds=params["stage2_rounds"], sigma_mode="bounded",
+                lambda_l2=params["lambda_l2"], s2_min_child_samples=params["s2_min_child_samples"],
+                s2_num_leaves=None, s2_learning_rate=None, s2_feature_fraction=None, s2_max_depth=6,
+                num_threads=num_threads,
+            )
+            pred_q = predict_quantiles(stage1, stage2, X_va, QUANTILES, target_mode="delta_log", current_obs=base_va)
+            pred_q = np.clip(np.nan_to_num(pred_q, nan=0.0, posinf=1e7, neginf=0.0), 0.0, 1e7)
+            score = float(np.mean(wis_vectorized(pred_q[ok], actual[ok], QUANTILES)))
+            origin_wis.append(score)
+
+        mean_wis = float(np.mean(origin_wis)) if origin_wis else float("inf")
+        median_wis = float(np.median(origin_wis)) if origin_wis else float("inf")
+        results.append({
+            "trial_number": trial.number, "params": params, "single_split_wis": trial.value,
+            "origin_wis": origin_wis, "mean_wis": mean_wis, "median_wis": median_wis,
+        })
+        if verbose:
+            print(f"  [{name}] trial#{trial.number} single-split WIS={trial.value:.3f}  "
+                  f"rolling mean={mean_wis:.3f}  rolling median={median_wis:.3f}  per-origin={origin_wis}")
+
+    best = min(results, key=lambda r: r["mean_wis"])
+    if verbose:
+        flip = "" if best["trial_number"] == top_trials[0].number else "  <-- NOT the single-split winner"
+        print(f"[{name}] rolling-robust pick: trial#{best['trial_number']}  "
+              f"mean WIS={best['mean_wis']:.3f}{flip}")
+    return best["params"], {"candidates": results, "chosen": best}
 
 
 def run_gridsearch(
